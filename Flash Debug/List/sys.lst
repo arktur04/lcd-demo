@@ -1,0 +1,494 @@
+###############################################################################
+#                                                                             #
+#                                                       21/Mar/2012  01:14:36 #
+# IAR ANSI C/C++ Compiler V6.30.6.23336/W32 EVALUATION for ARM                #
+# Copyright 1999-2012 IAR Systems AB.                                         #
+#                                                                             #
+#    Cpu mode     =  arm                                                      #
+#    Endian       =  little                                                   #
+#    Source file  =  C:\Users\V\Desktop\LCD_Demo\board\sys.c                  #
+#    Command line =  C:\Users\V\Desktop\LCD_Demo\board\sys.c -D               #
+#                    IAR_LPC_2478_STK -lcN "C:\Users\V\Desktop\LCD_Demo\Flash #
+#                     Debug\List\" -o "C:\Users\V\Desktop\LCD_Demo\Flash      #
+#                    Debug\Obj\" --no_cse --no_unroll --no_inline             #
+#                    --no_code_motion --no_tbaa --no_clustering               #
+#                    --no_scheduling --debug --endian=little                  #
+#                    --cpu=ARM7TDMI-S -e --fpu=None --dlib_config             #
+#                    "C:\Program Files (x86)\IAR Systems\Embedded Workbench   #
+#                    6.0 Evaluation\arm\INC\c\DLib_Config_Normal.h" -I        #
+#                    C:\Users\V\Desktop\LCD_Demo\app\ -I                      #
+#                    C:\Users\V\Desktop\LCD_Demo\board\ -I                    #
+#                    C:\Users\V\Desktop\LCD_Demo\modules\ --cpu_mode arm -On  #
+#                    --use_c++_inline                                         #
+#    List file    =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\List\sys.lst     #
+#    Object file  =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\Obj\sys.o        #
+#                                                                             #
+#                                                                             #
+###############################################################################
+
+C:\Users\V\Desktop\LCD_Demo\board\sys.c
+      1          /*************************************************************************
+      2           * Программа, демонстрирующая работу цветного LCD-индикатора 
+      3           * и резистивного сенсора
+      4           *
+      5           * sys.h
+      6           **************************************************************************/
+      7          #include "sys.h"
+      8          #include <nxp/iolpc2478.h>
+      9          
+     10          void ExtMemInit(void)
+     11          {
+     12            PINSEL6  &= BIN32(11111111,11111111,00000000,00000000);
+     13            PINMODE6 &= BIN32(11111111,11111111,00000000,00000000);
+     14            PINSEL6  |= BIN32(00000000,00000000,01010101,01010101);
+     15            PINMODE6 |= BIN32(00000000,00000000,10101010,10101010);
+     16          
+     17            PINSEL8  = BIN32(01010101,01010101,01010101,01010101);
+     18            PINMODE8 = BIN32(10101010,10101010,10101010,10101010);
+     19            
+     20            PINSEL9 &= BIN32(11001111,11001100,11111111,11000000);
+     21            PINSEL9 |= BIN32(00010000,00010001,00000000,00010101);
+     22            PINMODE9&= BIN32(11001111,11001100,11111111,11000000);
+     23            PINMODE9|= BIN32(00100000,00100010,00000000,00101010);
+     24          
+     25            // Init SDRAM controller
+     26            // Enable EMC clock
+     27            PCONP_bit.PCEMC    = 1;
+     28          
+     29            EMCSTATICWAITRD0   = 0x00000001;
+     30            EMCSTATICWAITPG0   = 0x00000000;
+     31            EMCSTATICWAITWR0   = 0x00000000;
+     32            EMCSTATICWAITTURN0 = 0x00000000;
+     33            
+     34            EMCCONTROL      = 1;         // enable EMC
+     35          }
+     36          
+     37          char SRAM_Test(void)
+     38          {
+     39          // 32 bits access
+     40            for (Int32U i = 0; i < 0x80000; i+=sizeof(Int32U))
+     41            {
+     42              *(Int32U*)(((Int32U)SRAM_BASE_ADDR)+i) = i;
+     43            }
+     44          
+     45            for (Int32U i = 0; i < 0x80000; i+=sizeof(Int32U))
+     46            {
+     47              if (*(Int32U*)(((Int32U)SRAM_BASE_ADDR)+i) != i)
+     48              {
+     49                printf("Verification error on address : 0x%x\n",(Int32U)SRAM_BASE_ADDR+i);
+     50                return(FALSE);
+     51              }
+     52            }
+     53            
+     54            return TRUE;
+     55          }
+     56          
+     57          #ifndef __FIQ_USED
+     58          /*************************************************************************
+     59           * Function Name: fiq_handler
+     60           * Parameters: none
+     61           *
+     62           * Return: none
+     63           *
+     64           * Description: FIQ handler
+     65           *
+     66           *************************************************************************/
+     67          __fiq __arm void FIQ_Handler (void)
+     68          {
+     69            while(1);
+     70          }
+     71          #endif // __FIQ_USED
+     72          
+     73          #ifndef __IRQ_USED
+     74          /*************************************************************************
+     75           * Function Name: irq_handler
+     76           * Parameters: none
+     77           *
+     78           * Return: none
+     79           *
+     80           * Description: IRQ handler
+     81           *
+     82           *************************************************************************/
+     83          __irq __arm void IRQ_Handler (void)
+     84          {
+     85          void (*interrupt_function)();
+     86          unsigned int vector;
+     87          
+     88            vector = VICADDRESS;     // Get interrupt vector.
+     89            interrupt_function = (void(*)())vector;
+     90            if(interrupt_function != NULL)
+     91            {
+     92              interrupt_function();  // Call vectored interrupt function.
+     93            }
+     94            else
+     95            {
+     96              VICADDRESS = 0;      // Clear interrupt in VIC.
+     97            }
+     98          }
+     99          #endif // __IRQ_USED
+    100          
+    101          /*************************************************************************
+    102           * Function Name: VIC_Init
+    103           * Parameters: void
+    104           * Return: void
+    105           *
+    106           * Description: Initialize VIC
+    107           *
+    108           *************************************************************************/
+    109          void VIC_Init(void)
+    110          {
+    111          volatile unsigned long * pVecAdd, *pVecCntl;
+    112          int i;
+    113            // Assign all interrupt channels to IRQ
+    114            VICINTSELECT  =  0;
+    115            // Disable all interrupts
+    116            VICINTENCLEAR = 0xFFFFFFFF;
+    117            // Clear all software interrupts
+    118            VICSOFTINTCLEAR = 0xFFFFFFFF;
+    119            // VIC registers can be accessed in User or privileged mode
+    120            VICPROTECTION = 0;
+    121            // Clear interrupt
+    122            VICADDRESS = 0;
+    123          
+    124            // Clear address of the Interrupt Service routine (ISR) for vectored IRQs
+    125            // and disable all vectored IRQ slots
+    126            for(i = 0,  pVecCntl = &VICVECTPRIORITY0, pVecAdd = &VICVECTADDR0; i < 32; ++i)
+    127            {
+    128              *pVecCntl++ = *pVecAdd++ = 0;
+    129            }
+    130          }
+    131          
+    132          /*************************************************************************
+    133           * Function Name: VIC_SetVectoredIRQ
+    134           * Parameters:  void(*pIRQSub)()
+    135           *              unsigned int VicIrqSlot
+    136           *              unsigned int VicIntSouce
+    137           *
+    138           * Return: void
+    139           *
+    140           * Description:  Init vectored interrupts
+    141           *
+    142           *************************************************************************/
+    143          void VIC_SetVectoredIRQ(void(*pIRQSub)(), unsigned int Priority,
+    144                                  unsigned int VicIntSource)
+    145          {
+    146          unsigned long volatile *pReg;
+    147            // load base address of vectored address registers
+    148            pReg = &VICVECTADDR0;
+    149            // Set Address of callback function to corresponding Slot
+    150            *(pReg+VicIntSource) = (unsigned long)pIRQSub;
+    151            // load base address of ctrl registers
+    152            pReg = &VICVECTPRIORITY0;
+    153            // Set source channel and enable the slot
+    154            *(pReg+VicIntSource) = Priority;
+    155            // Clear FIQ select bit
+    156            VICINTSELECT &= ~(1<<VicIntSource);
+    157          }
+    158          
+    159          /*************************************************************************
+    160           * Function Name: InitClock
+    161           * Parameters: void
+    162           * Return: void
+    163           *
+    164           * Description: Initialize PLL and clocks' dividers. Hclk - 288MHz,
+    165           * Cclk- 72MHz, Usbclk - 48MHz
+    166           *
+    167           *************************************************************************/
+    168          void InitClock(void)
+    169          {
+    170            // 1. Init OSC
+    171            SCS_bit.OSCRANGE = 0;
+    172            SCS_bit.OSCEN = 1;
+    173            // 2.  Wait for OSC ready
+    174            while(!SCS_bit.OSCSTAT);
+    175            // 3. Disconnect PLL
+    176            PLLCON_bit.PLLC = 0;
+    177            PLLFEED = 0xAA;
+    178            PLLFEED = 0x55;
+    179            // 4. Disable PLL
+    180            PLLCON_bit.PLLE = 0;
+    181            PLLFEED = 0xAA;
+    182            PLLFEED = 0x55;
+    183            // 5. Select source clock for PLL
+    184            CLKSRCSEL_bit.CLKSRC = 1; // Selects the main oscillator as a PLL clock source.
+    185            // 6. Set PLL settings 288 MHz
+    186            PLLCFG_bit.MSEL = 24-1;
+    187            PLLCFG_bit.NSEL = 2-1;
+    188            PLLFEED = 0xAA;
+    189            PLLFEED = 0x55;
+    190            // 7. Enable PLL
+    191            PLLCON_bit.PLLE = 1;
+    192            PLLFEED = 0xAA;
+    193            PLLFEED = 0x55;
+    194            // 8. Wait for the PLL to achieve lock
+    195            while(!PLLSTAT_bit.PLOCK);
+    196            // 9. Set clk divider settings
+    197            CCLKCFG   = 4-1;            // 1/4 Fpll - 72 MHz
+    198            USBCLKCFG = 6-1;            // 1/6 Fpll - 48 MHz
+    199            PCLKSEL0 = PCLKSEL1 = 0;    // other peripherals - 18MHz (Fcclk/4)
+    200            // 10. Connect the PLL
+    201            PLLCON_bit.PLLC = 1;
+    202            PLLFEED = 0xAA;
+    203            PLLFEED = 0x55;
+    204            // stop all Peripherals' clocks
+    205            PCONP = 0;
+    206          
+    207            // Configure AHB1 arbitration
+    208            AHBCFG1_bit.SHDL = 0;     // priority arbitration
+    209            AHBCFG1_bit.BB   = 0;     // Never break defined length bursts.
+    210            AHBCFG1_bit.QT   = 0;     // A quantum is an AHB clock.
+    211            AHBCFG1_bit.QT   = 4;     // Preemptive, re-arbitrate after 16 AHB quanta.
+    212            AHBCFG1_bit.DM   = 1;     // Master 1 (CPU) is the default master.
+    213            AHBCFG1_bit.EP1  = 1;     // External priority for master 1 (CPU).
+    214            AHBCFG1_bit.EP2  = 2;     // External priority for master 2 (GPDMA).
+    215            AHBCFG1_bit.EP3  = 3;     // External priority for master 3 (AHB1).
+    216            AHBCFG1_bit.EP4  = 5;     // External priority for master 4 (USB).
+    217            AHBCFG1_bit.EP5  = 4;     // External priority for master 5 (LCD).
+    218          }
+    219          
+    220          /*************************************************************************
+    221           * Function Name: SYS_GetFsclk
+    222           * Parameters: none
+    223           * Return: Int32U
+    224           *
+    225           * Description: return Sclk [Hz]
+    226           *
+    227           *************************************************************************/
+    228          Int32U SYS_GetFsclk(void)
+    229          {
+    230          Int32U Mul = 1, Div = 1, Osc, Fsclk;
+    231            if(   PLLSTAT_bit.PLLC
+    232               && PLLSTAT_bit.PLLE)
+    233            {
+    234              // when PLL is connected
+    235              Mul = PLLSTAT_bit.MSEL + 1;
+    236              Div = PLLSTAT_bit.NSEL + 1;
+    237            }
+    238          
+    239            // Find clk source
+    240            switch(CLKSRCSEL_bit.CLKSRC)
+    241            {
+    242            case 0:
+    243              Osc = I_RC_OSC_FREQ;
+    244              break;
+    245            case 1:
+    246              Osc = MAIN_OSC_FREQ;
+    247              break;
+    248            case 2:
+    249              Osc = RTC_OSC_FREQ;
+    250              break;
+    251            default:
+    252              Osc = 0;
+    253            }
+    254            // Calculate system frequency
+    255            Fsclk = Osc*Mul*2;
+    256            Fsclk /= Div*(CCLKCFG+1);
+    257            return(Fsclk);
+    258          }
+    259          
+    260          /*************************************************************************
+    261           * Function Name: SYS_GetFpclk
+    262           * Parameters: Int32U Periphery
+    263           * Return: Int32U
+    264           *
+    265           * Description: return Pclk [Hz]
+    266           *
+    267           *************************************************************************/
+    268          Int32U SYS_GetFpclk(Int32U Periphery)
+    269          {
+    270          Int32U Fpclk;
+    271          pInt32U pReg = (pInt32U)((Periphery < 32)?&PCLKSEL0:&PCLKSEL1);
+    272          
+    273            Periphery  &= 0x1F;   // %32
+    274            Fpclk = SYS_GetFsclk();
+    275            // find peripheral appropriate periphery divider
+    276            switch((*pReg >> Periphery) & 3)
+    277            {
+    278            case 0:
+    279              Fpclk /= 4;
+    280              break;
+    281            case 1:
+    282              break;
+    283            case 2:
+    284              Fpclk /= 2;
+    285              break;
+    286            default:
+    287              Fpclk /= 8;
+    288            }
+    289            return(Fpclk);
+    290          }
+    291          
+    292          /*************************************************************************
+    293           * Function Name: GpioInit
+    294           * Parameters: void
+    295           * Return: void
+    296           *
+    297           * Description: Reset all GPIO pins to default: primary function
+    298           *
+    299           *************************************************************************/
+    300          void GpioInit(void)
+    301          {
+    302            // Set to inputs
+    303            IO0DIR  = 0;
+    304            IO1DIR  = 0;
+    305            FIO0DIR = 0;
+    306            FIO1DIR = 0;
+    307            FIO2DIR = 0;
+    308            FIO3DIR = 0;
+    309            FIO4DIR = 0;
+    310          
+    311            // Enable Fast GPIO0,1
+    312            SCS_bit.GPIOM = 1;
+    313          
+    314            // clear mask registers
+    315            FIO0MASK = 0;
+    316            FIO1MASK = 0;
+    317            FIO2MASK = 0;
+    318            FIO3MASK = 0;
+    319            FIO4MASK = 0;
+    320          
+    321          #ifndef SDRAM_DEBUG
+    322            // Reset all GPIO pins to default primary function
+    323            PINSEL0 = 0;
+    324            PINSEL1 = 0;
+    325            PINSEL2 = 0;
+    326            PINSEL3 = 0;
+    327            PINSEL4 = 0;
+    328            PINSEL5 = 0;
+    329            PINSEL6 = 0;
+    330            PINSEL7 = 0;
+    331            PINSEL8 = 0;
+    332            PINSEL9 = 0;
+    333          #endif
+    334          }
+    335          
+
+   Maximum stack usage in bytes:
+
+   .cstack Function
+   ------- --------
+        0  ExtMemInit
+        0  FIQ_Handler
+        0  GpioInit
+       32  IRQ_Handler
+             32 -- Indirect call
+        0  InitClock
+        8  SRAM_Test
+              8 -> printf
+       16  SYS_GetFpclk
+             16 -> SYS_GetFsclk
+       16  SYS_GetFsclk
+             16 -> __aeabi_uidiv
+        0  VIC_Init
+        4  VIC_SetVectoredIRQ
+
+
+   Section sizes:
+
+   Bytes  Function/Label
+   -----  --------------
+      40  ?<Constant "Verification error on...">
+       4  ??DataTable5
+       4  ??DataTable5_1
+       4  ??DataTable5_10
+       4  ??DataTable5_11
+       4  ??DataTable5_12
+       4  ??DataTable5_13
+       4  ??DataTable5_14
+       4  ??DataTable5_15
+       4  ??DataTable5_16
+       4  ??DataTable5_17
+       4  ??DataTable5_18
+       4  ??DataTable5_19
+       4  ??DataTable5_2
+       4  ??DataTable5_20
+       4  ??DataTable5_21
+       4  ??DataTable5_22
+       4  ??DataTable5_23
+       4  ??DataTable5_24
+       4  ??DataTable5_25
+       4  ??DataTable5_26
+       4  ??DataTable5_27
+       4  ??DataTable5_28
+       4  ??DataTable5_29
+       4  ??DataTable5_3
+       4  ??DataTable5_30
+       4  ??DataTable5_31
+       4  ??DataTable5_32
+       4  ??DataTable5_4
+       4  ??DataTable5_5
+       4  ??DataTable5_6
+       4  ??DataTable5_7
+       4  ??DataTable5_8
+       4  ??DataTable5_9
+     308  ExtMemInit
+       4  FIQ_Handler
+     348  GpioInit
+      60  IRQ_Handler
+     656  InitClock
+      96  SRAM_Test
+     108  SYS_GetFpclk
+     240  SYS_GetFsclk
+       4  VICADDRESS
+       4  VICVECTADDR0
+     148  VIC_Init
+      84  VIC_SetVectoredIRQ
+       4  _A_AHBCFG1
+       4  _A_CCLKCFG
+       4  _A_CLKSRCSEL
+       4  _A_EMCCONTROL
+       4  _A_EMCSTATICWAITPG0
+       4  _A_EMCSTATICWAITRD0
+       4  _A_EMCSTATICWAITTURN0
+       4  _A_EMCSTATICWAITWR0
+       4  _A_FIO0DIR
+       4  _A_FIO0MASK
+       4  _A_FIO1DIR
+       4  _A_FIO1MASK
+       4  _A_FIO2DIR
+       4  _A_FIO2MASK
+       4  _A_FIO3DIR
+       4  _A_FIO3MASK
+       4  _A_FIO4DIR
+       4  _A_FIO4MASK
+       4  _A_IO0DIR
+       4  _A_IO1DIR
+       4  _A_PCLKSEL0
+       4  _A_PCLKSEL1
+       4  _A_PCONP
+       4  _A_PINMODE6
+       4  _A_PINMODE8
+       4  _A_PINMODE9
+       4  _A_PINSEL0
+       4  _A_PINSEL1
+       4  _A_PINSEL2
+       4  _A_PINSEL3
+       4  _A_PINSEL4
+       4  _A_PINSEL5
+       4  _A_PINSEL6
+       4  _A_PINSEL7
+       4  _A_PINSEL8
+       4  _A_PINSEL9
+       4  _A_PLLCFG
+       4  _A_PLLCON
+       4  _A_PLLFEED
+       4  _A_PLLSTAT
+       4  _A_SCS
+       4  _A_USBCLKCFG
+       4  _A_VICINTENCLEAR
+       4  _A_VICINTSELECT
+       4  _A_VICPROTECTION
+       4  _A_VICSOFTINTCLEAR
+       4  _A_VICVECTPRIORITY0
+
+ 
+   196 bytes in section .noinit (abs)
+    40 bytes in section .rodata
+ 2 184 bytes in section .text
+ 
+ 2 184 bytes of CODE  memory
+    40 bytes of CONST memory
+     0 bytes of DATA  memory (+ 196 bytes shared)
+
+Errors: none
+Warnings: 4

@@ -1,0 +1,245 @@
+###############################################################################
+#                                                                             #
+#                                                       21/Mar/2012  01:14:36 #
+# IAR ANSI C/C++ Compiler V6.30.6.23336/W32 EVALUATION for ARM                #
+# Copyright 1999-2012 IAR Systems AB.                                         #
+#                                                                             #
+#    Cpu mode     =  arm                                                      #
+#    Endian       =  little                                                   #
+#    Source file  =  C:\Users\V\Desktop\LCD_Demo\app\lcd_sensor.c             #
+#    Command line =  C:\Users\V\Desktop\LCD_Demo\app\lcd_sensor.c -D          #
+#                    IAR_LPC_2478_STK -lcN "C:\Users\V\Desktop\LCD_Demo\Flash #
+#                     Debug\List\" -o "C:\Users\V\Desktop\LCD_Demo\Flash      #
+#                    Debug\Obj\" --no_cse --no_unroll --no_inline             #
+#                    --no_code_motion --no_tbaa --no_clustering               #
+#                    --no_scheduling --debug --endian=little                  #
+#                    --cpu=ARM7TDMI-S -e --fpu=None --dlib_config             #
+#                    "C:\Program Files (x86)\IAR Systems\Embedded Workbench   #
+#                    6.0 Evaluation\arm\INC\c\DLib_Config_Normal.h" -I        #
+#                    C:\Users\V\Desktop\LCD_Demo\app\ -I                      #
+#                    C:\Users\V\Desktop\LCD_Demo\board\ -I                    #
+#                    C:\Users\V\Desktop\LCD_Demo\modules\ --cpu_mode arm -On  #
+#                    --use_c++_inline                                         #
+#    List file    =  C:\Users\V\Desktop\LCD_Demo\Flash                        #
+#                    Debug\List\lcd_sensor.lst                                #
+#    Object file  =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\Obj\lcd_sensor.o #
+#                                                                             #
+#                                                                             #
+###############################################################################
+
+C:\Users\V\Desktop\LCD_Demo\app\lcd_sensor.c
+      1          #include "arm_comm.h"
+      2          #include "board.h"
+      3          #include "sys.h"
+      4          
+      5          //_lcdPressedCallback = NULL;
+      6          int _stage = 0;
+      7          
+      8          #pragma optimize = none
+      9          void delay(int value)
+     10          {
+     11            for(int delay = 0; delay < value; delay++); 
+     12          }
+     13          
+     14          char getXLpullup(void)
+     15          {
+     16            PINMODE1_bit.P0_25 = 0; //pull-up resistor
+     17            FIO0DIR_bit.P0_25 = 0; 
+     18            delay(200);
+     19            return FIO0PIN_bit.P0_25;
+     20          }
+     21          
+     22          void initAdc(void)
+     23          {
+     24            PINSEL1_bit.P0_23 = 1; //function 1 - adc
+     25            PINSEL1_bit.P0_24 = 1; //function 1 - adc
+     26          
+     27            AD0CR_bit.CLKDIV = SYS_GetFpclk(ADC_PCLK_OFFSET)/4500000 - 1;    //(72 MHz / 4.5 MHz)  - 1
+     28            AD0CR_bit.BURST = 0;
+     29            AD0CR_bit.CLKS = 0;
+     30            AD0CR_bit.PDN = 1;
+     31          }
+     32          
+     33          void setYUasAdc(void)
+     34          {
+     35            PINSEL1_bit.P0_23 = 1; //function 1 - adc  
+     36            AD0CR_bit.SEL = 1;
+     37          }
+     38          
+     39          void setXRasAdc(void)
+     40          {
+     41            PINSEL1_bit.P0_24 = 1; //function 1 - adc
+     42            AD0CR_bit.SEL = 2;
+     43          }
+     44          
+     45          int getYUadc(void)
+     46          {
+     47            AD0CR_bit.START = 1;
+     48            while(!ADDR0_bit.DONE);
+     49            return ADDR0_bit.RESULT;
+     50          }
+     51          
+     52          int getXRadc(void)
+     53          {
+     54            AD0CR_bit.START = 1;
+     55            while(!ADDR1_bit.DONE);
+     56            return ADDR1_bit.RESULT;
+     57          }
+     58          
+     59          void setXLout(char value)
+     60          {
+     61            FIO0DIR_bit.P0_25 = 1;
+     62            FIO0PIN_bit.P0_25 = value;
+     63          }
+     64          
+     65          char getXL(void)
+     66          {
+     67            FIO0DIR_bit.P0_25 = 0;
+     68            PINMODE1_bit.P0_25 = 2; //no pull-up resistor  
+     69            return FIO0PIN_bit.P0_25;
+     70          }
+     71          
+     72          char getXR(void)
+     73          {
+     74            PINSEL1_bit.P0_24 = 0; //function 0 - gpio
+     75            FIO0DIR_bit.P0_24 = 0;
+     76            PINMODE1_bit.P0_24 = 2; //no pull-up resistor
+     77            return FIO0PIN_bit.P0_24;
+     78          }
+     79          
+     80          void setXRout(char value)
+     81          {
+     82            PINSEL1_bit.P0_24 = 0; //function 0 - gpio
+     83            FIO0DIR_bit.P0_24 = 1;
+     84            FIO0PIN_bit.P0_24 = value;
+     85          }
+     86          
+     87          char getYD(void)
+     88          {
+     89           // PINSEL7_bit.P3_28 = 0; 
+     90            FIO0DIR_bit.P0_26 = 0;
+     91            PINMODE1_bit.P0_26 = 2; //no pull-up resistor
+     92            return FIO0PIN_bit.P0_26;
+     93          }
+     94          
+     95          void setYDout(char value)
+     96          {
+     97            FIO0DIR_bit.P0_26 = 1;
+     98            FIO0PIN_bit.P0_26 = value;
+     99          }
+    100          
+    101          void setYUout(char value)
+    102          {
+    103            PINSEL1_bit.P0_23 = 0; //function 0 - gpio
+    104            FIO0DIR_bit.P0_23 = 1;
+    105            FIO0PIN_bit.P0_23 = value; 
+    106          }
+    107          
+    108          //-------------------------------
+    109          
+    110          char getScreenPressed(void)
+    111          {
+    112            setYUout(0);
+    113            getXR();
+    114            getYD();
+    115            return !getXLpullup();
+    116          }
+    117          
+    118          void setState1(void)
+    119          {
+    120            setXLout(0);
+    121            setXRout(1);
+    122            getYD(); //set UD to high-impedance state
+    123            setYUasAdc();
+    124          }
+    125          
+    126          void setState2(void)
+    127          {
+    128            setYDout(0);
+    129            setYUout(1);
+    130            getXL(); //set UD to high-impedance state
+    131            setXRasAdc();
+    132          }
+
+   Maximum stack usage in bytes:
+
+   .cstack Function
+   ------- --------
+        0  delay
+        8  getScreenPressed
+             8 -> getXLpullup
+             8 -> getXR
+             8 -> getYD
+             8 -> setYUout
+        0  getXL
+        8  getXLpullup
+             8 -> delay
+        0  getXR
+        0  getXRadc
+        0  getYD
+        0  getYUadc
+        8  initAdc
+             8 -> SYS_GetFpclk
+             8 -> __aeabi_uidiv
+        8  setState1
+             8 -> getYD
+             8 -> setXLout
+             8 -> setXRout
+             8 -> setYUasAdc
+        8  setState2
+             8 -> getXL
+             8 -> setXRasAdc
+             8 -> setYDout
+             8 -> setYUout
+        0  setXLout
+        0  setXRasAdc
+        0  setXRout
+        0  setYDout
+        0  setYUasAdc
+        0  setYUout
+
+
+   Section sizes:
+
+   Bytes  Function/Label
+   -----  --------------
+       4  ??DataTable6
+       4  ??DataTable6_1
+       4  ??DataTable6_2
+       4  ??DataTable6_3
+       4  _A_AD0CR
+       4  _A_ADDR0
+       4  _A_ADDR1
+       4  _A_FIO0DIR
+       4  _A_FIO0PIN
+       4  _A_PINMODE1
+       4  _A_PINSEL1
+       4  _stage
+      24  delay
+      52  getScreenPressed
+      76  getXL
+      84  getXLpullup
+     104  getXR
+      68  getXRadc
+      76  getYD
+      68  getYUadc
+     216  initAdc
+      32  setState1
+      32  setState2
+      80  setXLout
+      68  setXRasAdc
+     108  setXRout
+      80  setYDout
+      68  setYUasAdc
+     108  setYUout
+
+ 
+     4 bytes in section .bss
+    28 bytes in section .noinit (abs)
+ 1 360 bytes in section .text
+ 
+ 1 360 bytes of CODE memory
+     4 bytes of DATA memory (+ 28 bytes shared)
+
+Errors: none
+Warnings: 2

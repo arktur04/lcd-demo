@@ -1,0 +1,366 @@
+###############################################################################
+#                                                                             #
+#                                                       21/Mar/2012  01:14:31 #
+# IAR ANSI C/C++ Compiler V6.30.6.23336/W32 EVALUATION for ARM                #
+# Copyright 1999-2012 IAR Systems AB.                                         #
+#                                                                             #
+#    Cpu mode     =  arm                                                      #
+#    Endian       =  little                                                   #
+#    Source file  =  C:\Users\V\Desktop\LCD_Demo\app\main.c                   #
+#    Command line =  C:\Users\V\Desktop\LCD_Demo\app\main.c -D                #
+#                    IAR_LPC_2478_STK -lcN "C:\Users\V\Desktop\LCD_Demo\Flash #
+#                     Debug\List\" -o "C:\Users\V\Desktop\LCD_Demo\Flash      #
+#                    Debug\Obj\" --no_cse --no_unroll --no_inline             #
+#                    --no_code_motion --no_tbaa --no_clustering               #
+#                    --no_scheduling --debug --endian=little                  #
+#                    --cpu=ARM7TDMI-S -e --fpu=None --dlib_config             #
+#                    "C:\Program Files (x86)\IAR Systems\Embedded Workbench   #
+#                    6.0 Evaluation\arm\INC\c\DLib_Config_Normal.h" -I        #
+#                    C:\Users\V\Desktop\LCD_Demo\app\ -I                      #
+#                    C:\Users\V\Desktop\LCD_Demo\board\ -I                    #
+#                    C:\Users\V\Desktop\LCD_Demo\modules\ --cpu_mode arm -On  #
+#                    --use_c++_inline                                         #
+#    List file    =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\List\main.lst    #
+#    Object file  =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\Obj\main.o       #
+#                                                                             #
+#                                                                             #
+###############################################################################
+
+C:\Users\V\Desktop\LCD_Demo\app\main.c
+      1          /*************************************************************************
+      2           * Программа, демонстрирующая работу цветного LCD-индикатора 
+      3           * и резистивного сенсора
+      4           *
+      5           * main.c
+      6           **************************************************************************/
+      7          #include <intrinsics.h>
+      8          #include <stdio.h>
+      9          #include "board.h"
+     10          #include "sys.h"
+     11          #include "drv_glcd.h"
+     12          #include "logo.h"
+     13          #include "Cursor.h"
+     14          #include "stdlib.h"
+     15          
+     16          #include "lcd_sensor.h"
+     17          
+     18          #define TIMER0_TICK_PER_SEC   2
+     19          
+     20          const float coeffXa = 0.46, coeffXb = -60.0, coeffYa = -0.39, coeffYb = 340.0;
+     21          
+     22          char _state = 0;
+     23          void debugPin(char val)
+     24          {
+     25            FIO2PIN_bit.P2_15 = val;
+     26          }
+     27          
+     28          /*************************************************************************
+     29           * Function Name: Timer0IntrHandler
+     30           * Parameters: none
+     31           *
+     32           * Return: none
+     33           *
+     34           * Description: Timer 0 interrupt handler
+     35           *
+     36           *************************************************************************/
+     37          void Timer0IntrHandler (void)
+     38          {
+     39            // tests
+     40            _state ^= 1;
+     41            debugPin( _state ); 
+     42            /*  testXL( _state );
+     43            testXR( _state );
+     44            testYU( _state );
+     45            testYD( _state );
+     46            */
+     47            // clear interrupt
+     48            T0IR_bit.MR0INT = 1;
+     49            VICADDRESS = 0;
+     50          }
+     51          
+     52          void FillMem(void)
+     53           { 
+     54             for(int x = 0; x < 320; x++)
+     55             {
+     56               for(int y = 0; y < 240; y++)
+     57               {
+     58                 *(Int32U*) (((Int32U)SRAM_BASE_ADDR) + (y * 320 + x) * 4) =
+     59                   (x < 160)? 0x000000FF: 0;
+     60               }
+     61             }
+     62            }
+     63          
+     64          Int32U median3(Int32U * pArr)
+     65          {
+     66            if (((pArr[1] <= pArr[0]) && (pArr[0] <= pArr[2])) ||
+     67                ((pArr[1] >= pArr[0]) && (pArr[0] >= pArr[2])))
+     68              return pArr[0];
+     69            
+     70            if (((pArr[0] <= pArr[1]) && (pArr[1] <= pArr[2])) ||
+     71                ((pArr[0] >= pArr[1]) && (pArr[1] >= pArr[2])))
+     72              return pArr[1];
+     73          
+     74           // if (((pArr[0] <= pArr[2]) && (pArr[2] <= pArr[1])) ||
+     75           //     ((pArr[0] >= pArr[2]) && (pArr[2] >= pArr[1])))
+     76              return pArr[2];  
+     77          }
+     78          
+     79          char scrPressed(char * charArr)
+     80          {
+     81            for(char i = 0; i < 3; i++)
+     82            {
+     83              if(!charArr[i])
+     84              {
+     85                return FALSE;
+     86              }
+     87            }
+     88            return TRUE;
+     89          }
+     90          
+     91          /*************************************************************************
+     92           * Function Name: main
+     93           * Parameters: none
+     94           *
+     95           * Return: none
+     96           *
+     97           * Description: main
+     98           *
+     99           *************************************************************************/
+    100          int main(void)
+    101          { 
+    102          int cursor_x = (C_GLCD_H_SIZE - CURSOR_H_SIZE) / 2;
+    103          int cursor_y = (C_GLCD_V_SIZE - CURSOR_V_SIZE) / 2;
+    104          Int32U adcX[3], adcY[3];
+    105          Int32U medianX, medianY;
+    106          char screenPressed[3];
+    107          
+    108            GLCD_Ctrl (FALSE);
+    109          
+    110            // Init GPIO
+    111            GpioInit();
+    112          
+    113            // MAM init
+    114            MAMCR_bit.MODECTRL = 0;
+    115            MAMTIM_bit.CYCLES  = 3;   // FCLK > 40 MHz
+    116            MAMCR_bit.MODECTRL = 2;   // MAM functions fully enabled
+    117          
+    118            InitClock();
+    119          
+    120            ExtMemInit();
+    121          
+    122            //reset LCD panel
+    123            FIO0DIR_bit.P0_19 = 1;
+    124            FIO0CLR_bit.P0_19 = 1;
+    125            
+    126            delay(1000000);
+    127            FIO0SET_bit.P0_19 = 1;
+    128            //-------------------------------------
+    129            
+    130            VIC_Init();
+    131           
+    132            SetVramAddr((pInt32U)SRAM_BASE_ADDR);
+    133           // SetPalAddr((pInt32U)&palette);
+    134            
+    135           // GLCD init
+    136           // FillMem();
+    137            GLCD_Init (LogoPic.pPicStream, (pInt32U)&palette);//NULL);
+    138          
+    139            GLCD_Cursor_Dis(0);
+    140          
+    141            GLCD_Copy_Cursor ((Int32U *)Cursor, 0, sizeof(Cursor)/sizeof(Int32U));
+    142          
+    143            GLCD_Cursor_Cfg(CRSR_FRAME_SYNC | CRSR_PIX_32);
+    144          
+    145            GLCD_Move_Cursor(cursor_x, cursor_y);
+    146          
+    147            GLCD_Cursor_En(0);
+    148          
+    149            // Enable TIM0 clocks
+    150            PCONP_bit.PCTIM0 = 1; // enable clock
+    151            PCONP_bit.PCAD = 1;
+    152            PCLKSEL0_bit.PCLK_ADC = 1;
+    153          
+    154            // Init Time0
+    155            T0TCR_bit.CE = 0;     // counting  disable
+    156            T0TCR_bit.CR = 1;     // set reset
+    157            T0TCR_bit.CR = 0;     // release reset
+    158            T0CTCR_bit.CTM = 0;   // Timer Mode: every rising PCLK edge
+    159            T0MCR_bit.MR0I = 1;   // Enable Interrupt on MR0
+    160            T0MCR_bit.MR0R = 1;   // Enable reset on MR0
+    161            T0MCR_bit.MR0S = 0;   // Disable stop on MR0
+    162            // set timer 0 period
+    163            T0PR = 0;
+    164            T0MR0 = SYS_GetFpclk(TIMER0_PCLK_OFFSET)/(TIMER0_TICK_PER_SEC);
+    165            // init timer 0 interrupt
+    166            T0IR_bit.MR0INT = 1;  // clear pending interrupt
+    167            VIC_SetVectoredIRQ(Timer0IntrHandler,0,VIC_TIMER0);
+    168            VICINTENABLE |= 1UL << VIC_TIMER0;
+    169            T0TCR_bit.CE = 1;     // counting Enable
+    170            __enable_interrupt();
+    171            
+    172            GLCD_Ctrl (TRUE);                                                            //
+    173          
+    174          #if 0
+    175            SRAM_Test();
+    176          #endif
+    177              
+    178          #if 0
+    179           FillMem();
+    180          #endif
+    181           
+    182           //debug led
+    183            FIO2DIR_bit.P2_15 = 1;
+    184            FIO2CLR_bit.P2_15 = 1; 
+    185            
+    186            initAdc();
+    187            
+    188            cursor_x = C_GLCD_H_SIZE - CURSOR_H_SIZE/2;
+    189            cursor_y = (C_GLCD_V_SIZE - CURSOR_V_SIZE/2);
+    190            
+    191            while(1)
+    192            {
+    193              #if 1
+    194              if( getScreenPressed() )
+    195              {
+    196                for(int i = 0; i < 3; i++)
+    197                {
+    198                  if( getScreenPressed())
+    199                  {
+    200                    screenPressed[i] = TRUE;
+    201                  setState1();
+    202                  delay(500);
+    203                  adcX[i] = getYUadc();
+    204                  setState2();
+    205                  delay(500);
+    206                  adcY[i] = getXRadc();
+    207                  }
+    208                  else
+    209                  {
+    210                    screenPressed[i] = FALSE;
+    211                    break;
+    212                  }
+    213                };
+    214              }
+    215              if( scrPressed(screenPressed) ) // if the sensor is still pressed
+    216              {
+    217                medianX = median3(adcX);
+    218                medianY = median3(adcY);
+    219                
+    220                cursor_x = (int)(medianX * coeffXa + coeffXb);
+    221                cursor_y = (int)(medianY * coeffYa + coeffYb);
+    222                if(cursor_x < 0) cursor_x = 0;
+    223                if(cursor_x > C_GLCD_H_SIZE - 1) cursor_x = C_GLCD_H_SIZE - 1;
+    224                if(cursor_y < 0) cursor_y = 0;
+    225                if(cursor_y > C_GLCD_H_SIZE - 1) cursor_y = C_GLCD_H_SIZE - 1;
+    226              }
+    227              for(char i = 0; i < 3; i++)
+    228              {
+    229                screenPressed[i] = FALSE;
+    230              }
+    231              #endif
+    232           
+    233          //    cursor_x = C_GLCD_H_SIZE - CURSOR_H_SIZE/2;
+    234          //    cursor_y = (C_GLCD_V_SIZE - CURSOR_V_SIZE/2);
+    235              GLCD_Move_Cursor(cursor_x, cursor_y);
+    236            }
+    237          }
+
+   Maximum stack usage in bytes:
+
+   .cstack Function
+   ------- --------
+        0  FillMem
+        8  Timer0IntrHandler
+              8 -> debugPin
+        0  debugPin
+       56  main
+             56 -> ExtMemInit
+             56 -> GLCD_Copy_Cursor
+             56 -> GLCD_Ctrl
+             56 -> GLCD_Cursor_Cfg
+             56 -> GLCD_Cursor_Dis
+             56 -> GLCD_Cursor_En
+             56 -> GLCD_Init
+             56 -> GLCD_Move_Cursor
+             56 -> GpioInit
+             56 -> InitClock
+             56 -> SYS_GetFpclk
+             56 -> SetVramAddr
+             56 -> VIC_Init
+             56 -> VIC_SetVectoredIRQ
+             56 -> __aeabi_f2iz
+             56 -> __aeabi_fadd
+             56 -> __aeabi_fmul
+             56 -> __aeabi_ui2f
+             56 -> delay
+             56 -> getScreenPressed
+             56 -> getXRadc
+             56 -> getYUadc
+             56 -> initAdc
+             56 -> median3
+             56 -> scrPressed
+             56 -> setState1
+             56 -> setState2
+        0  median3
+        0  scrPressed
+
+
+   Section sizes:
+
+   Bytes  Function/Label
+   -----  --------------
+       4  ??DataTable1
+       4  ??DataTable1_1
+       4  ??DataTable1_10
+       4  ??DataTable1_11
+       4  ??DataTable1_12
+       4  ??DataTable1_2
+       4  ??DataTable1_3
+       4  ??DataTable1_4
+       4  ??DataTable1_5
+       4  ??DataTable1_6
+       4  ??DataTable1_7
+       4  ??DataTable1_8
+       4  ??DataTable1_9
+      88  FillMem
+       4  T0MR0
+       4  T0PR
+      80  Timer0IntrHandler
+       4  VICADDRESS
+       4  _A_FIO0CLR
+       4  _A_FIO0DIR
+       4  _A_FIO0SET
+       4  _A_FIO2CLR
+       4  _A_FIO2DIR
+       4  _A_FIO2PIN
+       4  _A_MAMCR
+       4  _A_MAMTIM
+       4  _A_PCLKSEL0
+       4  _A_PCONP
+       4  _A_T0CTCR
+       4  _A_T0IR
+       4  _A_T0MCR
+       4  _A_T0TCR
+       4  _A_VICINTENABLE
+       1  _state
+       4  coeffXa
+       4  coeffXb
+       4  coeffYa
+       4  coeffYb
+      52  debugPin
+    1144  main
+     152  median3
+      64  scrPressed
+
+ 
+     1 byte  in section .bss
+    72 bytes in section .noinit (abs)
+    16 bytes in section .rodata
+ 1 632 bytes in section .text
+ 
+ 1 632 bytes of CODE  memory
+    16 bytes of CONST memory
+     1 byte  of DATA  memory (+ 72 bytes shared)
+
+Errors: none
+Warnings: 2

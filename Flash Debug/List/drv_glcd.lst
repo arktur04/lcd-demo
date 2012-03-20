@@ -1,0 +1,909 @@
+###############################################################################
+#                                                                             #
+#                                                       21/Mar/2012  01:14:35 #
+# IAR ANSI C/C++ Compiler V6.30.6.23336/W32 EVALUATION for ARM                #
+# Copyright 1999-2012 IAR Systems AB.                                         #
+#                                                                             #
+#    Cpu mode     =  arm                                                      #
+#    Endian       =  little                                                   #
+#    Source file  =  C:\Users\V\Desktop\LCD_Demo\modules\drv_glcd.c           #
+#    Command line =  C:\Users\V\Desktop\LCD_Demo\modules\drv_glcd.c -D        #
+#                    IAR_LPC_2478_STK -lcN "C:\Users\V\Desktop\LCD_Demo\Flash #
+#                     Debug\List\" -o "C:\Users\V\Desktop\LCD_Demo\Flash      #
+#                    Debug\Obj\" --no_cse --no_unroll --no_inline             #
+#                    --no_code_motion --no_tbaa --no_clustering               #
+#                    --no_scheduling --debug --endian=little                  #
+#                    --cpu=ARM7TDMI-S -e --fpu=None --dlib_config             #
+#                    "C:\Program Files (x86)\IAR Systems\Embedded Workbench   #
+#                    6.0 Evaluation\arm\INC\c\DLib_Config_Normal.h" -I        #
+#                    C:\Users\V\Desktop\LCD_Demo\app\ -I                      #
+#                    C:\Users\V\Desktop\LCD_Demo\board\ -I                    #
+#                    C:\Users\V\Desktop\LCD_Demo\modules\ --cpu_mode arm -On  #
+#                    --use_c++_inline                                         #
+#    List file    =  C:\Users\V\Desktop\LCD_Demo\Flash                        #
+#                    Debug\List\drv_glcd.lst                                  #
+#    Object file  =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\Obj\drv_glcd.o   #
+#                                                                             #
+#                                                                             #
+###############################################################################
+
+C:\Users\V\Desktop\LCD_Demo\modules\drv_glcd.c
+      1          /*************************************************************************
+      2           *
+      3          *    Used with ICCARM and AARM.
+      4           *
+      5           *    (c) Copyright IAR Systems 2008
+      6           *
+      7           *    File name   : drv_glcd.c
+      8           *    Description : Graphical LCD driver
+      9           *
+     10           *    History :
+     11           *    1. Date        : 6, March 2008
+     12           *       Author      : Stanimir Bonev
+     13           *       Description : Create
+     14           *
+     15           *
+     16           *    $Revision: 30870 $
+     17           **************************************************************************/
+     18          
+     19          #include <stdio.h>
+     20          #include <stdlib.h>
+     21          #include <assert.h>
+     22          #include <stdarg.h>
+     23          #include "board.h"
+     24          #include "sys.h"
+     25          #include "drv_glcd.h"
+     26          
+     27          #define C_GLCD_CLK_PER_LINE     (C_GLCD_H_SIZE + C_GLCD_H_PULSE + C_GLCD_H_FRONT_PORCH + C_GLCD_H_BACK_PORCH)
+     28          #define C_GLCD_LINES_PER_FRAME  (C_GLCD_V_SIZE + C_GLCD_V_PULSE + C_GLCD_V_FRONT_PORCH + C_GLCD_V_BACK_PORCH)
+     29          #define C_GLCD_PIX_CLK          (6.4MHZ)//(6.4MHZ)
+     30          
+     31          //extern Int32U SDRAM_BASE_ADDR;
+     32          
+     33          //#define LCD_VRAM_BASE_ADDR SRAM_BASE_ADDR //((Int32U)&SRAM_BASE_ADDR)
+     34          #define LCD_CURSOR_BASE_ADDR ((Int32U)0xFFE10800)
+     35          
+     36          static pFontType_t pCurrFont = NULL;
+     37          static LdcPixel_t TextColour;
+     38          static LdcPixel_t TextBackgndColour;
+     39          
+     40          static Int32U TextX_Pos = 0;
+     41          static Int32U TextY_Pos = 0;
+     42          
+     43          static Int32U XL_Win = 0;
+     44          static Int32U YU_Win = 0;
+     45          static Int32U XR_Win = C_GLCD_H_SIZE-1;
+     46          static Int32U YD_Win = C_GLCD_V_SIZE-1;
+     47          
+     48          static Int32U TabSize = TEXT_DEF_TAB_SIZE;
+     49          
+     50          static Int32U WindY_Size, WindX_Size;
+     51          static Int32U CurrY_Size, CurrX_Size;
+     52          static pInt32U pWind;
+     53          static pInt32U pPix;
+     54          
+     55          static pInt32U VramAddr;
+     56          
+     57          pInt32U GetVramAddr(void) {return VramAddr;};                                      //newly added
+     58          void SetVramAddr(pInt32U value) {VramAddr = value;};                               //newly add
+     59          /*
+     60          static pInt32U PalAddr;
+     61          
+     62          pInt32U GetPalAddr(void) {return PalAddr;};                                       //newly added
+     63          void SetPalAddr(pInt32U value) {PalAddr = value;};                               //newly add
+     64          */
+     65          /*************************************************************************
+     66           * Function Name: GLCD_Cursor_Cnfg
+     67           * Parameters:
+     68           *
+     69           * Return: none
+     70           *
+     71           * Description: Configure the cursor
+     72           *
+     73           *************************************************************************/
+     74          void GLCD_Cursor_Cfg(int Cfg)
+     75          {
+     76            CRSR_PAL1 = 0x00000000;
+     77            CRSR_PAL0 = 0x00FFFFFF;
+     78            CRSR_CFG = Cfg;
+     79          }
+     80          /*************************************************************************
+     81           * Function Name: GLCD_Cursor_En
+     82           * Parameters: cursor - Cursor Number
+     83           *
+     84           * Return: none
+     85           *
+     86           * Description: Enable Cursor
+     87           *
+     88           *************************************************************************/
+     89          void GLCD_Cursor_En(int cursor)
+     90          {
+     91            CRSR_CTRL_bit.CrsrNum = cursor;
+     92            CRSR_CTRL_bit.CrsrOn = 1;
+     93          }
+     94          
+     95          /*************************************************************************
+     96           * Function Name: GLCD_Cursor_Dis
+     97           * Parameters: None
+     98           *
+     99           * Return: none
+    100           *
+    101           * Description: Disable Cursor
+    102           *
+    103           *************************************************************************/
+    104          void GLCD_Cursor_Dis(int cursor)
+    105          {
+    106            CRSR_CTRL_bit.CrsrOn = 0;
+    107          }
+    108          
+    109          /*************************************************************************
+    110           * Function Name: GLCD_Move_Cursor
+    111           * Parameters: x - cursor x position
+    112           *             y - cursor y position
+    113           *
+    114           * Return: none
+    115           *
+    116           * Description: Moves cursor on position (x,y). Negativ values are posible.
+    117           *
+    118           *************************************************************************/
+    119          void GLCD_Move_Cursor(int x, int y)
+    120          {
+    121            if(0 <= x)
+    122            {//no clipping
+    123              CRSR_CLIP_bit.CrsrClipX = 0;
+    124              CRSR_XY_bit.CrsrX = x;
+    125            }
+    126            else
+    127            {//clip x
+    128              CRSR_CLIP_bit.CrsrClipX = -x;
+    129              CRSR_XY_bit.CrsrX = 0;
+    130            }
+    131          
+    132            if(0 <= y)
+    133            {//no clipping
+    134              CRSR_CLIP_bit.CrsrClipY = 0;
+    135              CRSR_XY_bit.CrsrY = y;
+    136            }
+    137            else
+    138            {//clip y
+    139              CRSR_CLIP_bit.CrsrClipY = -y;
+    140              CRSR_XY_bit.CrsrY = 0;
+    141            }
+    142          }
+    143          
+    144          /*************************************************************************
+    145           * Function Name: GLCD_Copy_Cursor
+    146           * Parameters: pCursor - pointer to cursor conts image
+    147           *             cursor - cursor Number (0,1,2 or 3)
+    148           *                      for 64x64(size 256) pix cursor always use 0
+    149           *             size - cursor size in words
+    150           * Return: none
+    151           *
+    152           * Description: Copy Cursor from const image to LCD RAM image
+    153           *
+    154           *************************************************************************/
+    155          void GLCD_Copy_Cursor (const Int32U *pCursor, int cursor, int size)
+    156          {
+    157             Int32U * pDst = (Int32U *)LCD_CURSOR_BASE_ADDR;
+    158             pDst += cursor*64;
+    159          
+    160             for(int i = 0; i < size ; i++) *pDst++ = *pCursor++;
+    161          }
+    162          /*************************************************************************
+    163           * Function Name: GLCD_Init
+    164           * Parameters: const Int32U *pPain, const Int32U * pPallete
+    165           *
+    166           * Return: none
+    167           *
+    168           * Description: GLCD controller init
+    169           *
+    170           *************************************************************************/
+    171          void GLCD_Init (const Int32U *pPain, const Int32U * pPallete)
+    172          {
+    173          pInt32U pDst = GetVramAddr();//(pInt32U) LCD_VRAM_BASE_ADDR;
+    174            // Assign pin
+    175            PINSEL0 &= BIN32(11111111,11110000,00000000,11111111);
+    176            PINSEL0 |= BIN32(00000000,00000101,01010101,00000000);
+    177            PINMODE0&= BIN32(11111111,11111100,00000000,11111111);
+    178            PINMODE0|= BIN32(00000000,00000010,10101010,00000000);
+    179            PINSEL3 &= BIN32(11110000,00000000,00000000,11111111);
+    180            PINSEL3 |= BIN32(00000101,01010101,01010101,00000000);
+    181            PINMODE3&= BIN32(11110000,00000000,00000000,11111111);
+    182            PINMODE3|= BIN32(00001010,10101010,10101010,00000000);
+    183            PINSEL4 &= BIN32(11110000,00110000,00000000,00000000);
+    184            PINSEL4 |= BIN32(00000101,01001111,11111111,11111111);
+    185            PINMODE4&= BIN32(11110000,00110000,00000000,00000000);
+    186            PINMODE4|= BIN32(00001010,10001010,10101010,10101010);
+    187            PINSEL9 &= BIN32(11110000,11111111,11111111,11111111);
+    188            PINSEL9 |= BIN32(00001010,00000000,00000000,00000000);
+    189            PINMODE9&= BIN32(11110000,11111111,11111111,11111111);
+    190            PINMODE9|= BIN32(00001010,00000000,00000000,00000000);
+    191            PINSEL11&= BIN32(11111111,11111111,11111111,11110000);
+    192            PINSEL11|= BIN32(00000000,00000000,00000000,00001111);
+    193            // Init GLCD cotroller
+    194            PCONP_bit.PCLCD = 1;      // enable LCD controller clock
+    195            CRSR_CTRL_bit.CrsrOn = 0; // Disable cursor
+    196            LCD_CTRL_bit.LcdEn = 0;   // disable GLCD controller
+    197            LCD_CTRL_bit.LcdBpp= 5;  //2bpp // 24 bpp
+    198            
+    199            LCD_CTRL_bit.LcdTFT= 1;   // TFT panel
+    200            LCD_CTRL_bit.LcdDual=0;   // single panel
+    201            LCD_CTRL_bit.BGR   = 0;   // normal output
+    202            LCD_CTRL_bit.BEBO  = 0;   // little endian byte order
+    203            LCD_CTRL_bit.BEPO  = 0;   // little endian pix order
+    204            LCD_CTRL_bit.LcdPwr= 0;   // disable power
+    205            
+    206           // LCD_CTRL_bit.WATERMARK = 0;                                                   // added
+    207            // init pixel clock
+    208            LCD_CFG_bit.CLKDIV = SYS_GetFsclk() / (Int32U)C_GLCD_PIX_CLK;
+    209            LCD_POL_bit.BCD    = 1;   // bypass inrenal clk divider
+    210            LCD_POL_bit.CLKSEL = 0;   // clock source for the LCD block is HCLK
+    211            LCD_POL_bit.IVS    = 1;   // LCDFP pin is active LOW and inactive HIGH
+    212            LCD_POL_bit.IHS    = 1;   // LCDLP pin is active LOW and inactive HIGH
+    213           // LCD_POL_bit.IPC    = 1;   // data is driven out into the LCD on the falling edge
+    214            LCD_POL_bit.IPC    = 0;   // data is driven out into the LCD on the rising edge
+    215            
+    216            LCD_POL_bit.PCD_HI = 0;  //  //
+    217            LCD_POL_bit.PCD_LO = 0;  //
+    218          
+    219            LCD_POL_bit.IOE    = 0;   // active high
+    220            LCD_POL_bit.CPL    = C_GLCD_H_SIZE-1;
+    221            // init Horizontal Timing
+    222            LCD_TIMH_bit.HBP   =  C_GLCD_H_BACK_PORCH - 1;
+    223            LCD_TIMH_bit.HFP   =  C_GLCD_H_FRONT_PORCH - 1;
+    224            LCD_TIMH_bit.HSW   =  C_GLCD_H_PULSE - 1;
+    225            LCD_TIMH_bit.PPL   = (C_GLCD_H_SIZE/16) - 1;
+    226            // init Vertical Timing
+    227            LCD_TIMV_bit.VBP   =  C_GLCD_V_BACK_PORCH;
+    228            LCD_TIMV_bit.VFP   =  C_GLCD_V_FRONT_PORCH;
+    229            LCD_TIMV_bit.VSW   =  C_GLCD_V_PULSE;
+    230            LCD_TIMV_bit.LPP   =  C_GLCD_V_SIZE - 1;
+    231            // Frame Base Address doubleword aligned
+    232            LCD_UPBASE         =  (Int32U)GetVramAddr()  & ~7UL;//LCD_VRAM_BASE_ADDR & ~7UL ;
+    233           // LCD_LPBASE         =  (Int32U)GetVramAddr() & ~7UL;//LCD_VRAM_BASE_ADDR & ~7UL ;
+    234            // init colour pallet
+    235            
+    236            if(NULL != pPallete)
+    237            {
+    238              GLCD_SetPallet(pPallete);
+    239            }
+    240          
+    241            if (NULL == pPain)
+    242            {
+    243              // clear display memory
+    244              for(Int32U i = 0; (C_GLCD_H_SIZE * C_GLCD_V_SIZE) > i; i++)
+    245              {
+    246                *pDst++ = 0;
+    247              }
+    248            }
+    249            else
+    250            {
+    251              // set display memory
+    252              for(Int32U i = 0; (C_GLCD_H_SIZE * C_GLCD_V_SIZE) > i; i++)
+    253              {
+    254                *pDst++ = *pPain++;
+    255              }
+    256            }
+    257            for(volatile Int32U i = C_GLCD_ENA_DIS_DLY; i; i--);
+    258          }
+    259          
+    260          /*************************************************************************
+    261           * Function Name: GLCD_SetPallet
+    262           * Parameters: const Int32U * pPallete
+    263           *
+    264           * Return: none
+    265           *
+    266           * Description: GLCD init colour pallete
+    267           *
+    268           *************************************************************************/
+    269          void GLCD_SetPallet (const Int32U * pPallete)
+    270          {
+    271          pInt32U pDst = (pInt32U)0xFFE10200; //LCD_PAL_BASE;
+    272            assert(pPallete);
+    273            for (Int32U i = 0; i < 128; i++)
+    274            {
+    275              *pDst++ = *pPallete++;
+    276            }
+    277          }
+    278          
+    279          /*************************************************************************
+    280           * Function Name: GLCD_Ctrl
+    281           * Parameters: Boolean bEna
+    282           *
+    283           * Return: none
+    284           *
+    285           * Description: GLCD enable disabe sequence
+    286           *
+    287           *************************************************************************/
+    288          void GLCD_Ctrl (Boolean bEna)
+    289          {
+    290            if (bEna)
+    291            {
+    292              LCD_CTRL_bit.LcdEn = 1;
+    293              for(volatile Int32U i = C_GLCD_PWR_ENA_DIS_DLY; i; i--);
+    294              LCD_CTRL_bit.LcdPwr= 1;   // enable power
+    295            }
+    296            else
+    297            {
+    298              LCD_CTRL_bit.LcdPwr= 0;   // disable power
+    299              for(volatile Int32U i = C_GLCD_PWR_ENA_DIS_DLY; i; i--);
+    300              LCD_CTRL_bit.LcdEn = 0;
+    301            }
+    302          }
+    303          
+    304          /*************************************************************************
+    305           * Function Name: GLCD_SetFont
+    306           * Parameters: pFontType_t pFont, LdcPixel_t Color
+    307           *              LdcPixel_t BackgndColor
+    308           *
+    309           * Return: none
+    310           *
+    311           * Description: Set current font, font color and background color
+    312           *
+    313           *************************************************************************/
+    314          void GLCD_SetFont(pFontType_t pFont, LdcPixel_t Color, LdcPixel_t BackgndColor)
+    315          {
+    316            pCurrFont = pFont;
+    317            TextColour = Color;
+    318            TextBackgndColour = BackgndColor;
+    319          }
+    320          
+    321          /*************************************************************************
+    322           * Function Name: GLCD_SetWindow
+    323           * Parameters: Int32U X_Left, Int32U Y_Up,
+    324           *             Int32U X_Right, Int32U Y_Down
+    325           *
+    326           * Return: none
+    327           *
+    328           * Description: Set draw window XY coordinate in pixels
+    329           *
+    330           *************************************************************************/
+    331          void GLCD_SetWindow(Int32U X_Left, Int32U Y_Up,
+    332                              Int32U X_Right, Int32U Y_Down)
+    333          {
+    334            assert(X_Right < C_GLCD_H_SIZE);
+    335            assert(Y_Down < C_GLCD_V_SIZE);
+    336            assert(X_Left < X_Right);
+    337            assert(Y_Up < Y_Down);
+    338            XL_Win = X_Left;
+    339            YU_Win = Y_Up;
+    340            XR_Win = X_Right;
+    341            YD_Win = Y_Down;
+    342          }
+    343          
+    344          /*************************************************************************
+    345           * Function Name: GLCD_TextSetPos
+    346           * Parameters: Int32U X_UpLeft, Int32U Y_UpLeft,
+    347           *             Int32U X_DownLeft, Int32U Y_DownLeft
+    348           *
+    349           * Return: none
+    350           *
+    351           * Description: Set text X,Y coordinate in characters
+    352           *
+    353           *************************************************************************/
+    354          void GLCD_TextSetPos(Int32U X, Int32U Y)
+    355          {
+    356            TextX_Pos = X;
+    357            TextY_Pos = Y;
+    358          }
+    359          
+    360          /*************************************************************************
+    361           * Function Name: GLCD_TextSetTabSize
+    362           * Parameters: Int32U Size
+    363           *
+    364           * Return: none
+    365           *
+    366           * Description: Set text tab size in characters
+    367           *
+    368           *************************************************************************/
+    369          void GLCD_TextSetTabSize(Int32U Size)
+    370          {
+    371            TabSize = Size;
+    372          }
+    373          
+    374          /*************************************************************************
+    375           * Function Name: LCD_SET_WINDOW
+    376           * Parameters: int c
+    377           *
+    378           * Return: none
+    379           *
+    380           * Description: Put char function
+    381           *
+    382           *************************************************************************/
+    383          static
+    384          void LCD_SET_WINDOW (Int32U X_Left, Int32U X_Right,
+    385                               Int32U Y_Up, Int32U Y_Down)
+    386          {
+    387            pPix = pWind = (/*(pInt32U)LCD_VRAM_BASE_ADDR*/GetVramAddr()) + X_Left + (Y_Up*C_GLCD_H_SIZE);
+    388            WindX_Size = X_Right - X_Left;
+    389            WindY_Size = Y_Down - Y_Up;
+    390            CurrX_Size = CurrY_Size = 0;
+    391          }
+    392          
+    393          /*************************************************************************
+    394           * Function Name: LCD_SET_WINDOW
+    395           * Parameters: int c
+    396           *
+    397           * Return: none
+    398           *
+    399           * Description: Put char function
+    400           *
+    401           *************************************************************************/
+    402          static
+    403          void LCD_WRITE_PIXEL (Int32U Pixel)
+    404          {
+    405            *pPix++ = Pixel;
+    406            if (++CurrX_Size > WindX_Size)
+    407            {
+    408              CurrX_Size = 0;
+    409              if(++CurrY_Size > WindY_Size)
+    410              {
+    411                CurrY_Size = 0;
+    412              }
+    413              pPix = pWind + CurrY_Size * C_GLCD_H_SIZE;
+    414            }
+    415          }
+    416          
+    417          /*************************************************************************
+    418           * Function Name: GLCD_TextCalcWindow
+    419           * Parameters: pInt32U pXL, pInt32U pXR,
+    420           *             pInt32U pYU, pInt32U pYD,
+    421           *             pInt32U pH_Size, pInt32U pV_Size
+    422           *
+    423           * Return: Boolean
+    424           *          FALSE - out of window coordinate aren't valid
+    425           *          TRUE  - the returned coordinate are valid
+    426           *
+    427           * Description: Calculate character window
+    428           *
+    429           *************************************************************************/
+    430          static
+    431          Boolean GLCD_TextCalcWindow (pInt32U pXL, pInt32U pXR,
+    432                                       pInt32U pYU, pInt32U pYD,
+    433                                       pInt32U pH_Size, pInt32U pV_Size)
+    434          {
+    435            *pH_Size = pCurrFont->H_Size;
+    436            *pV_Size = pCurrFont->V_Size;
+    437            *pXL = XL_Win + (TextX_Pos*pCurrFont->H_Size);
+    438            if(*pXL > XR_Win)
+    439            {
+    440              return(FALSE);
+    441            }
+    442            *pYU = YU_Win + (TextY_Pos*pCurrFont->V_Size);
+    443            if(*pYU > YD_Win)
+    444            {
+    445              return(FALSE);
+    446            }
+    447          
+    448            *pXR   = XL_Win + ((TextX_Pos+1)*pCurrFont->H_Size) - 1;
+    449            if(*pXR > XR_Win)
+    450            {
+    451            	*pH_Size -= *pXR - XR_Win;
+    452              *pXR = XR_Win;
+    453            }
+    454          
+    455            *pYD = YU_Win + ((TextY_Pos+1)*pCurrFont->V_Size) - 1;
+    456            if(*pYD > YD_Win)
+    457            {
+    458              *pV_Size -= *pYD - YD_Win;
+    459              *pYD = YD_Win;
+    460            }
+    461          
+    462            return(TRUE);
+    463          }
+    464          
+    465          /*************************************************************************
+    466           * Function Name: putchar
+    467           * Parameters: int c
+    468           *
+    469           * Return: none
+    470           *
+    471           * Description: Put char function
+    472           *
+    473           *************************************************************************/
+    474          int GLCD_putchar (int c)
+    475          {
+    476          pInt8U pSrc;
+    477          Int32U H_Line;
+    478          Int32U xl,xr,yu,yd,Temp,V_Size, H_Size, SrcInc = 1;
+    479          Int32U WhiteSpaceNumb;
+    480            if(pCurrFont == NULL)
+    481            {
+    482              return(EOF);
+    483            }
+    484            H_Line = (pCurrFont->H_Size / 8) + ((pCurrFont->H_Size % 8)?1:0);
+    485            switch(c)
+    486            {
+    487            case '\n':  // go to begin of next line (NewLine)
+    488              ++TextY_Pos;
+    489              break;
+    490            case '\r':  // go to begin of this line (Carriage Return)
+    491            	// clear from current position to end of line
+    492            	while(GLCD_TextCalcWindow(&xl,&xr,&yu,&yd,&H_Size,&V_Size))
+    493            	{
+    494                LCD_SET_WINDOW(xl,xr,yu,yd);
+    495          	    for(Int32U i = 0; i < V_Size; ++i)
+    496          	    {
+    497          	      for(Int32U j = 0; j < H_Size; ++j)
+    498          	      {
+    499          	        LCD_WRITE_PIXEL(TextBackgndColour);
+    500          	      }
+    501          	    }
+    502            		++TextX_Pos;
+    503            	}
+    504              TextX_Pos = 0;
+    505              break;
+    506            case '\b': // go back one position (BackSpace)
+    507              if(TextX_Pos)
+    508              {
+    509                --TextX_Pos;
+    510                // del current position
+    511          	  	if(GLCD_TextCalcWindow(&xl,&xr,&yu,&yd,&H_Size,&V_Size))
+    512          	  	{
+    513                  LCD_SET_WINDOW(xl,xr,yu,yd);
+    514          		    for(Int32U i = 0; i < V_Size; ++i)
+    515          		    {
+    516          		      for(Int32U j = 0; j < H_Size; ++j)
+    517          		      {
+    518          		        LCD_WRITE_PIXEL(TextBackgndColour);
+    519          		      }
+    520          		    }
+    521          	  	}
+    522              }
+    523              break;
+    524            case '\t':  // go to next Horizontal Tab stop
+    525            	WhiteSpaceNumb = TabSize - (TextX_Pos%TabSize);
+    526            	for(Int32U k = 0; k < WhiteSpaceNumb; ++k)
+    527            	{
+    528                LCD_SET_WINDOW(xl,xr,yu,yd);
+    529          	  	if(GLCD_TextCalcWindow(&xl,&xr,&yu,&yd,&H_Size,&V_Size))
+    530          	  	{
+    531          		    for(Int32U i = 0; i < V_Size; ++i)
+    532          		    {
+    533          		      for(Int32U j = 0; j < H_Size; ++j)
+    534          		      {
+    535          		        LCD_WRITE_PIXEL(TextBackgndColour);
+    536          		      }
+    537          		    }
+    538          		    ++TextX_Pos;
+    539          	  	}
+    540          	  	else
+    541          	  	{
+    542          	  		break;
+    543          	  	}
+    544            	}
+    545              break;
+    546            case '\f':  // go to top of page (Form Feed)
+    547            	// clear entire window
+    548            	H_Size = XR_Win - XL_Win;
+    549            	V_Size = YD_Win - YU_Win;
+    550              // set character window X left, Y right
+    551              LCD_SET_WINDOW(XL_Win,XR_Win,YU_Win,YD_Win);
+    552              // Fill window with background font color
+    553              for(Int32U i = 0; i <= V_Size; ++i)
+    554              {
+    555                for(Int32U j = 0; j <= H_Size; ++j)
+    556                {
+    557                  LCD_WRITE_PIXEL(TextBackgndColour);
+    558                }
+    559              }
+    560            	
+    561            	TextX_Pos = TextY_Pos = 0;
+    562              break;
+    563            case '\a':  // signal an alert (BELl)
+    564              TEXT_BEL1_FUNC();
+    565              break;
+    566            default:
+    567              // Calculate the current character base address from stream
+    568              // and the character position
+    569              if((c <  pCurrFont->CharacterOffset) &&
+    570              	 (c >= pCurrFont->CharactersNuber))
+    571             	{
+    572             		c = 0;
+    573              }
+    574              else
+    575              {
+    576              	c -= pCurrFont->CharacterOffset;
+    577              }
+    578              pSrc = pCurrFont->pFontStream + (H_Line * pCurrFont->V_Size * c);
+    579              // Calculate character window and fit it in the text window
+    580              if(GLCD_TextCalcWindow(&xl,&xr,&yu,&yd,&H_Size,&V_Size))
+    581              {
+    582          	    // set character window X left, Y right
+    583          	    LCD_SET_WINDOW(xl,xr,yu,yd);
+    584          	    // Send char data
+    585          	    for(Int32U i = 0; i < V_Size; ++i)
+    586          	    {
+    587                  SrcInc = H_Line;
+    588                  for(Int32U j = 0; j < H_Size; ++j)
+    589          	      {
+    590          	        Temp = (*pSrc & (1UL << (j&0x7)))?TextColour:TextBackgndColour;
+    591          	        LCD_WRITE_PIXEL(Temp);
+    592          	        if((j&0x7) == 7)
+    593          	        {
+    594          	          ++pSrc;
+    595                      --SrcInc;
+    596          	        }
+    597          	      }
+    598                  // next line of character
+    599          	      pSrc += SrcInc;
+    600          	    }
+    601              }
+    602              ++TextX_Pos;
+    603            }
+    604            return(c);
+    605          }
+    606          
+    607          /*************************************************************************
+    608           * Function Name: GLCD_print
+    609           * Parameters: char *s, const char *fmt, ...
+    610           *
+    611           * Return: none
+    612           *
+    613           * Description: Print formated string on the LCD
+    614           *
+    615           *************************************************************************/
+    616          void GLCD_print (const char *fmt, ...)
+    617          {
+    618          va_list ap;
+    619          char s[MAX_GLCD_STR_SIZE];
+    620          char *p_char = s;
+    621            va_start(ap, fmt);
+    622            vsprintf(s, fmt,ap);
+    623            va_end(ap);
+    624            while(0 != *p_char)
+    625            {
+    626              if(-1 == GLCD_putchar(*p_char++))
+    627              {
+    628                break;
+    629              }
+    630            }
+    631          }
+    632          
+    633          /*************************************************************************
+    634           * Function Name: GLCD_LoadPic
+    635           * Parameters: Int32U X_Left, Int32U Y_Up, Bmp_t * pBmp
+    636           *
+    637           * Return: none
+    638           *
+    639           * Description: Load picture in VRAM memory area
+    640           *
+    641           *************************************************************************/
+    642          void GLCD_LoadPic (Int32U X_Left, Int32U Y_Up, Bmp_t * pBmp, Int32U Mask)
+    643          {
+    644          pInt32U pData = (/*(pInt32U) LCD_VRAM_BASE_ADDR*/GetVramAddr()) + X_Left + (Y_Up * C_GLCD_H_SIZE);
+    645          pInt32U pSrc = pBmp->pPicStream;
+    646          Int32U X_LeftHold;
+    647            for(Int32U i = 0; i < pBmp->V_Size; i++)
+    648            {
+    649              if(Y_Up++ >= C_GLCD_V_SIZE)
+    650              {
+    651                break;
+    652              }
+    653              for(Int32U j = 0; j < pBmp->H_Size; j++)
+    654              {
+    655                if(X_LeftHold++ >= C_GLCD_H_SIZE)
+    656                {
+    657                  pSrc += pBmp->H_Size - j;
+    658                  break;
+    659                }
+    660                *(pData+j) = *pSrc++ ^ Mask;
+    661              }
+    662              X_LeftHold = X_Left;
+    663              pData += C_GLCD_H_SIZE;
+    664            }
+    665          }
+    666          
+    667          /*************************************************************************
+    668           * Function Name: GLCD_LoadPicTransparent
+    669           * Parameters: Int32U X_Left, Int32U Y_Up, Bmp_t * pBmp
+    670           *
+    671           * Return: none
+    672           *
+    673           * Description: Load picture in VRAM memory area
+    674           *
+    675           *************************************************************************/
+    676          void GLCD_LoadPicTransparent (Int32U X_Left, Int32U Y_Up, Bmp_t * pBmp, Int32U Transp)
+    677          {
+    678          pInt32U pData = (/*(pInt32U) LCD_VRAM_BASE_ADDR*/ GetVramAddr()) + X_Left + (Y_Up * C_GLCD_H_SIZE);
+    679          pInt32U pSrc = pBmp->pPicStream;
+    680          Int32U X_LeftHold;
+    681            for(Int32U i = 0; i < pBmp->V_Size; i++)
+    682            {
+    683              if(Y_Up++ >= C_GLCD_V_SIZE)
+    684              {
+    685                break;
+    686              }
+    687              for(Int32U j = 0; j < pBmp->H_Size; j++)
+    688              {
+    689                if(X_LeftHold++ >= C_GLCD_H_SIZE)
+    690                {
+    691                  pSrc += pBmp->H_Size - j;
+    692                  break;
+    693                }
+    694                if ( Transp == *pSrc)
+    695                  *pSrc++;
+    696                else
+    697                  *(pData+j) = *pSrc++;
+    698              }
+    699              X_LeftHold = X_Left;
+    700              pData += C_GLCD_H_SIZE;
+    701            }
+    702          }
+    703          
+
+   Maximum stack usage in bytes:
+
+   .cstack Function
+   ------- --------
+        4  GLCD_Copy_Cursor
+        4  GLCD_Ctrl
+        0  GLCD_Cursor_Cfg
+        0  GLCD_Cursor_Dis
+        0  GLCD_Cursor_En
+       24  GLCD_Init
+              24 -> GLCD_SetPallet
+              24 -> GetVramAddr
+              24 -> SYS_GetFsclk
+              24 -> __aeabi_uidiv
+       32  GLCD_LoadPic
+              32 -> GetVramAddr
+       32  GLCD_LoadPicTransparent
+              32 -> GetVramAddr
+        0  GLCD_Move_Cursor
+        0  GLCD_SetFont
+       16  GLCD_SetPallet
+              16 -> __aeabi_assert
+              16 -> __iar_EmptyStepPoint
+       24  GLCD_SetWindow
+              24 -> __aeabi_assert
+              24 -> __iar_EmptyStepPoint
+       16  GLCD_TextCalcWindow
+        0  GLCD_TextSetPos
+        0  GLCD_TextSetTabSize
+      288  GLCD_print
+             288 -> GLCD_putchar
+             288 -> vsprintf
+       72  GLCD_putchar
+              72 -> GLCD_TextCalcWindow
+              72 -> LCD_SET_WINDOW
+              72 -> LCD_WRITE_PIXEL
+              72 -> __aeabi_uidivmod
+        0  GetVramAddr
+       32  LCD_SET_WINDOW
+              32 -> GetVramAddr
+        0  LCD_WRITE_PIXEL
+        0  SetVramAddr
+
+
+   Section sizes:
+
+   Bytes  Function/Label
+   -----  --------------
+      48  ?<Constant "C:\\Users\\V\\Desktop\\LC...">
+      20  ?<Constant "X_Left < X_Right">
+      24  ?<Constant "X_Right < C_GLCD_H_SIZE">
+      24  ?<Constant "Y_Down < C_GLCD_V_SIZE">
+      16  ?<Constant "Y_Up < Y_Down">
+      12  ?<Constant "pPallete">
+       4  ??DataTable16
+       4  ??DataTable16_1
+       4  ??DataTable16_2
+       4  ??DataTable16_3
+       4  ??DataTable16_4
+       4  ??DataTable16_5
+       4  ??DataTable16_6
+       4  ??DataTable16_7
+       4  ??DataTable17
+       4  ??DataTable17_1
+       4  ??DataTable17_10
+       4  ??DataTable17_11
+       4  ??DataTable17_12
+       4  ??DataTable17_13
+       4  ??DataTable17_14
+       4  ??DataTable17_15
+       4  ??DataTable17_16
+       4  ??DataTable17_17
+       4  ??DataTable17_18
+       4  ??DataTable17_19
+       4  ??DataTable17_2
+       4  ??DataTable17_20
+       4  ??DataTable17_21
+       4  ??DataTable17_22
+       4  ??DataTable17_23
+       4  ??DataTable17_24
+       4  ??DataTable17_25
+       4  ??DataTable17_26
+       4  ??DataTable17_27
+       4  ??DataTable17_28
+       4  ??DataTable17_29
+       4  ??DataTable17_3
+       4  ??DataTable17_30
+       4  ??DataTable17_31
+       4  ??DataTable17_32
+       4  ??DataTable17_33
+       4  ??DataTable17_34
+       4  ??DataTable17_35
+       4  ??DataTable17_36
+       4  ??DataTable17_37
+       4  ??DataTable17_38
+       4  ??DataTable17_4
+       4  ??DataTable17_5
+       4  ??DataTable17_6
+       4  ??DataTable17_7
+       4  ??DataTable17_8
+       4  ??DataTable17_9
+       4  CurrX_Size
+       4  CurrY_Size
+      56  GLCD_Copy_Cursor
+     184  GLCD_Ctrl
+      36  GLCD_Cursor_Cfg
+      24  GLCD_Cursor_Dis
+      56  GLCD_Cursor_En
+    1332  GLCD_Init
+     176  GLCD_LoadPic
+     192  GLCD_LoadPicTransparent
+     264  GLCD_Move_Cursor
+      28  GLCD_SetFont
+      80  GLCD_SetPallet
+     180  GLCD_SetWindow
+     392  GLCD_TextCalcWindow
+      20  GLCD_TextSetPos
+      12  GLCD_TextSetTabSize
+      88  GLCD_print
+    1184  GLCD_putchar
+      12  GetVramAddr
+     104  LCD_SET_WINDOW
+       4  LCD_UPBASE
+     164  LCD_WRITE_PIXEL
+      12  SetVramAddr
+       4  TabSize
+       4  TextBackgndColour
+       4  TextColour
+       4  TextX_Pos
+       4  TextY_Pos
+       4  VramAddr
+       4  WindX_Size
+       4  WindY_Size
+       4  XL_Win
+       4  XR_Win
+       4  YD_Win
+       4  YU_Win
+       4  _A_CRSR_CFG
+       4  _A_CRSR_CLIP
+       4  _A_CRSR_CTRL
+       4  _A_CRSR_PAL0
+       4  _A_CRSR_PAL1
+       4  _A_CRSR_XY
+       4  _A_LCD_CFG
+       4  _A_LCD_CTRL
+       4  _A_LCD_POL
+       4  _A_LCD_TIMH
+       4  _A_LCD_TIMV
+       4  _A_PCONP
+       4  _A_PINMODE0
+       4  _A_PINMODE3
+       4  _A_PINMODE4
+       4  _A_PINMODE9
+       4  _A_PINSEL0
+       4  _A_PINSEL11
+       4  _A_PINSEL3
+       4  _A_PINSEL4
+       4  _A_PINSEL9
+       4  pCurrFont
+       4  pPix
+       4  pWind
+
+ 
+    56 bytes in section .bss
+    12 bytes in section .data
+    88 bytes in section .noinit (abs)
+   144 bytes in section .rodata
+ 4 784 bytes in section .text
+ 
+ 4 784 bytes of CODE  memory
+   144 bytes of CONST memory
+    68 bytes of DATA  memory (+ 88 bytes shared)
+
+Errors: none
+Warnings: 2

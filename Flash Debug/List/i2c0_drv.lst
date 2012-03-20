@@ -1,0 +1,462 @@
+###############################################################################
+#                                                                             #
+#                                                       20/Mar/2012  20:29:54 #
+# IAR ANSI C/C++ Compiler V6.30.6.23336/W32 EVALUATION for ARM                #
+# Copyright 1999-2012 IAR Systems AB.                                         #
+#                                                                             #
+#    Cpu mode     =  arm                                                      #
+#    Endian       =  little                                                   #
+#    Source file  =  C:\Users\V\Desktop\LCD_Demo\modules\i2c0_drv.c           #
+#    Command line =  C:\Users\V\Desktop\LCD_Demo\modules\i2c0_drv.c -D        #
+#                    IAR_LPC_2478_STK -lcN "C:\Users\V\Desktop\LCD_Demo\Flash #
+#                     Debug\List\" -o "C:\Users\V\Desktop\LCD_Demo\Flash      #
+#                    Debug\Obj\" --no_cse --no_unroll --no_inline             #
+#                    --no_code_motion --no_tbaa --no_clustering               #
+#                    --no_scheduling --debug --endian=little                  #
+#                    --cpu=ARM7TDMI-S -e --fpu=None --dlib_config             #
+#                    "C:\Program Files (x86)\IAR Systems\Embedded Workbench   #
+#                    6.0 Evaluation\arm\INC\c\DLib_Config_Normal.h" -I        #
+#                    C:\Users\V\Desktop\LCD_Demo\app\ -I                      #
+#                    C:\Users\V\Desktop\LCD_Demo\board\ -I                    #
+#                    C:\Users\V\Desktop\LCD_Demo\modules\ --cpu_mode arm -On  #
+#                    --use_c++_inline                                         #
+#    List file    =  C:\Users\V\Desktop\LCD_Demo\Flash                        #
+#                    Debug\List\i2c0_drv.lst                                  #
+#    Object file  =  C:\Users\V\Desktop\LCD_Demo\Flash Debug\Obj\i2c0_drv.o   #
+#                                                                             #
+#                                                                             #
+###############################################################################
+
+C:\Users\V\Desktop\LCD_Demo\modules\i2c0_drv.c
+      1          /*************************************************************************
+      2           *
+      3          *    Used with ICCARM and AARM.
+      4           *
+      5           *    (c) Copyright IAR Systems 2007
+      6           *
+      7           *    File name   : i2c0_drv.c
+      8           *    Description : I2C0 driver
+      9           *
+     10           *    History :
+     11           *    1. Date        : 13, February 2008
+     12           *       Author      : Stanimir Bonev
+     13           *       Description : Create
+     14           *
+     15           *
+     16           *    $Revision: 30870 $
+     17           **************************************************************************/
+     18          #include "i2c0_drv.h"
+     19          
+     20          volatile int	  I2CState;
+     21          LPC_I2C_Msg_t	  I2CMsg;
+     22          
+     23          /*************************************************************************
+     24           * Function Name: I2C_EnableI2C
+     25           * Parameters: void
+     26           * Return: void
+     27           * Description: Enable I2C device.
+     28           *************************************************************************/
+     29          #pragma inline
+     30          void I2C_EnableI2C(void)
+     31          {
+     32            I2C0CONSET |= I2CON_I2EN;
+     33          }
+     34          
+     35          /*************************************************************************
+     36           * Function Name: I2C_DisableI2C
+     37           * Parameters: void
+     38           * Return: void
+     39           * Description: Disable I2C device.
+     40           *************************************************************************/
+     41          #pragma inline
+     42          void I2C_DisableI2C(void)
+     43          {
+     44            I2C0CONCLR = I2CON_I2ENC;
+     45          }
+     46          
+     47          /*************************************************************************
+     48           * Function Name: __I2C_SetFlag
+     49           * Parameters: int FlagType -- AA, INT and START and STOP
+     50           *
+     51           * Return: void
+     52           * Description: Set the flag.
+     53           *
+     54           *************************************************************************/
+     55          #pragma inline
+     56          void __I2C_SetFlag (int FlagType)
+     57          {
+     58            I2C0CONSET |= FlagType;
+     59          }
+     60          
+     61          /*************************************************************************
+     62           * Function Name: __I2C_ClearFlag
+     63           * Parameters: int FlagType -- AA, INT and START (Excl. STOP)
+     64           *
+     65           * Return: void
+     66           * Description: Clear the flag.
+     67           *
+     68           *************************************************************************/
+     69          #pragma inline
+     70          void __I2C_ClearFlag (int FlagType)
+     71          {
+     72            I2C0CONCLR = FlagType;
+     73          }
+     74          
+     75          /*************************************************************************
+     76           * Function Name: __I2C_SendData
+     77           * Parameters: unsigned char data
+     78           * Return: void
+     79           * Description: Load data to I2CDAT. Just used in I2C module.
+     80           *************************************************************************/
+     81          #pragma inline
+     82          void __I2C_SendData(unsigned char data)
+     83          {
+     84            I2C0DAT = data;
+     85          }
+     86          
+     87          /*************************************************************************
+     88           * Function Name: __I2C_ReceiveData
+     89           * Parameters: void
+     90           * Return: unsigned char
+     91           * Description: Load data from I2CDAT. Just used in I2C module.
+     92           *************************************************************************/
+     93          #pragma inline
+     94          unsigned char __I2C_ReceiveData(void)
+     95          {
+     96            return I2C0DAT;
+     97          }
+     98          
+     99          /*************************************************************************
+    100           * Function Name: I2C_InitMaster
+    101           * Parameters: unsigned long BusSpeed
+    102           *
+    103           * Return: int
+    104           *             	0: success
+    105           *	 non-zero: error number
+    106           * Description: Initialize the current device as I2C bus master.
+    107           *
+    108           *************************************************************************/
+    109          int I2C_InitMaster (unsigned long BusSpeed)
+    110          {
+    111          
+    112            PCONP_bit.PCI2C0 = 1;      // enable I2C0 clock
+    113          
+    114            if (BusSpeed > I2C_MAXSPEED)
+    115              return 1;
+    116            I2C_DisableI2C();
+    117          
+    118            // Bit Frequency = Fplk / (I2C_I2SCLH + I2C_I2SCLL)
+    119            // value of I2SCLH and I2SCLL must be different
+    120            I2C0SCLH = ((SYS_GetFpclk(I2C0_PCLK_OFFSET) / BusSpeed) / 2) + 1;
+    121            I2C0SCLL =  (SYS_GetFpclk(I2C0_PCLK_OFFSET) / BusSpeed) / 2;
+    122          
+    123            if (I2C0SCLH < 4 || I2C0SCLL < 4)
+    124              return 1;
+    125          
+    126            I2CState = I2C_IDLE;
+    127          
+    128            // Assign pins to SCL and SDA (P0_27, P0_28)
+    129            PINSEL1_bit.P0_27 = 1;
+    130            PINSEL1_bit.P0_28 = 1;
+    131          	
+    132          	// Enable I2C
+    133            I2C_EnableI2C();
+    134            __I2C_ClearFlag(I2CON_STAC | I2CON_SIC | I2CON_AAC);
+    135          
+    136            return 0;
+    137          }
+    138          
+    139          /*************************************************************************
+    140           * Function Name: I2C_MasterWrite
+    141           * Parameters:  unsigned char addr -- the slave address which you send message to
+    142           *		unsigned char *pMsg -- the point to the message
+    143           *		unsigned long numMsg -- the byte number of the message
+    144           * Return: int
+    145           *             	0: success
+    146           *       non-zero: error number
+    147           *
+    148           * Description: Transmit messages
+    149           *
+    150           *************************************************************************/
+    151          int I2C_MasterWrite (unsigned char addr, unsigned char *pMsg , unsigned long numMsg)
+    152          {
+    153            return I2C_Transfer (addr, pMsg , numMsg, WRITE, 0);
+    154          }
+    155          
+    156          
+    157          /*************************************************************************
+    158           * Function Name: I2C_MasterRead
+    159           * Parameters:  unsigned char addr -- the slave address which you send message to
+    160           *		unsigned char *pMsg -- the point to the message
+    161           *		unsigned long numMsg -- the byte number of the message
+    162           * Return: int
+    163           *             	0: success
+    164           *	 non-zero: error number
+    165           *
+    166           * Description: Receive messages
+    167           *
+    168           *************************************************************************/
+    169          int I2C_MasterRead (unsigned char addr, unsigned char *pMsg , unsigned long numMsg)
+    170          {
+    171            return I2C_Transfer (addr, pMsg , numMsg, READ, 0);
+    172          }
+    173          
+    174          /*************************************************************************
+    175           * Function Name: I2C_Transfer
+    176           * Parameters:  unsigned char addr -- the slave address which you send message to
+    177           *		unsigned char *pMsg -- the point to the message
+    178           *		unsigned long numMsg -- the byte number of the message
+    179           *		LPC_I2C_TransMode_t transMode -- Read, Write, Write then read
+    180           *		unsigned long numWrite -- this is only for "Write then read" mode
+    181           *			
+    182           * Return: int
+    183           *             	0: success
+    184           *       non-zero: error number
+    185           *
+    186           * Description: Transfer messages
+    187           *
+    188           *************************************************************************/
+    189          int I2C_Transfer (unsigned char addr, unsigned char *pMsg , unsigned long numMsg,
+    190          	          LPC_I2C_TransMode_t transMode, unsigned long numWrite)
+    191          {
+    192          unsigned int timeout = DLY_I2C_TIME_OUT;
+    193            if (transMode == WRITETHENREAD)
+    194            {
+    195              if (numWrite >= numMsg)
+    196                return 1;
+    197              else
+    198                I2CMsg.nrWriteBytes = numWrite;
+    199            }
+    200            else
+    201              I2CMsg.nrWriteBytes = 0;
+    202          	
+    203          	I2CMsg.buf       = pMsg;
+    204            I2CMsg.nrBytes   = numMsg;
+    205            I2CMsg.address   = addr;
+    206            I2CMsg.transMode = transMode;
+    207            I2CMsg.dataCount = 0;
+    208          
+    209            __I2C_SetFlag(I2CON_STA);
+    210          
+    211            I2CState = I2C_BUSY;	
+    212          
+    213            while(I2CState == I2C_BUSY)
+    214            {
+    215              // Wait the interrupt
+    216              if (I2C0CONSET & 0x08)
+    217              {
+    218                I2C_HandleMasterState();    // Master Mode
+    219                timeout = DLY_I2C_TIME_OUT;
+    220              }
+    221              if (timeout-- == 0)
+    222              {
+    223                I2CState = I2C_TIME_OUT;
+    224              }
+    225            }
+    226          
+    227          #ifdef __DEBUG__
+    228            if (I2C_OK != I2CState) {
+    229              printf("I2C error : %d\n",I2CState);
+    230              I2C_InitMaster(I2C_SPEED);
+    231            }
+    232          #endif
+    233            __I2C_ClearFlag(I2CON_STAC | I2CON_AAC);
+    234          
+    235            return I2CState;
+    236          }
+    237          
+    238          
+    239          /*************************************************************************
+    240           * Function Name: I2C_HandleMasterState
+    241           * Parameters: void
+    242           * Return: void
+    243           * Description: Master mode state handler for I2C bus.
+    244           *
+    245           *************************************************************************/
+    246          void I2C_HandleMasterState(void)
+    247          {
+    248          unsigned long I2Cstatus = I2C0STAT & 0xF8;
+    249          
+    250            switch (I2Cstatus)
+    251            {
+    252          /* ------- MASTER TRANSMITTER FUNCTIONS ----------- */
+    253            case 0x08 : // start condition transmitted
+    254            case 0x10 : // restart condition transmitted
+    255              if (I2CMsg.transMode == WRITETHENREAD)
+    256              {
+    257                if (I2CMsg.dataCount < I2CMsg.nrWriteBytes)
+    258                  __I2C_SendData((I2CMsg.address<<1) | WRITE);
+    259                else
+    260                {
+    261                  __I2C_SendData((I2CMsg.address<<1) | READ );
+    262                }
+    263              }
+    264              else
+    265              {
+    266                __I2C_SendData((I2CMsg.address<<1) | I2CMsg.transMode);
+    267              }
+    268              __I2C_ClearFlag(I2CON_STAC);	// STA bit
+    269              break;
+    270            case 0x18 : // SLA+W transmitted and ACK received
+    271              if ( I2CMsg.nrBytes == 0 )
+    272              {
+    273                __I2C_SetFlag  (I2CON_STO);             // STO bit clear automatically
+    274                I2CState = I2C_NO_DATA;
+    275              }
+    276              else
+    277              {
+    278                // Send next data byte
+    279                __I2C_SendData(I2CMsg.buf[I2CMsg.dataCount++]);	
+    280              }
+    281              break;	
+    282            case 0x20 : // SLA+W transmitted, but no ACK received
+    283              __I2C_SetFlag  (I2CON_STO);
+    284              I2CState = I2C_NACK_ON_ADDRESS;
+    285              break;		
+    286            case 0x28 : //Data byte transmitted and ACK received
+    287              if (I2CMsg.transMode == WRITE)
+    288              {
+    289                if (I2CMsg.dataCount < I2CMsg.nrBytes)
+    290                {
+    291                  __I2C_SendData (I2CMsg.buf[I2CMsg.dataCount++]);	
+    292                }
+    293                else
+    294                {
+    295                  __I2C_SetFlag  (I2CON_STO); // data transmit finished, stop transmit
+    296                  I2CState = I2C_OK;
+    297                }
+    298              }
+    299              else if (I2CMsg.transMode == WRITETHENREAD)
+    300              {
+    301                if (I2CMsg.dataCount < I2CMsg.nrWriteBytes)
+    302                {
+    303                  __I2C_SendData (I2CMsg.buf[I2CMsg.dataCount++]);	
+    304                }
+    305                else		// send start condition
+    306                {
+    307                  __I2C_SetFlag  (I2CON_STA);
+    308                }
+    309              }
+    310              break;
+    311            case 0x30 : // no ACK for data byte
+    312              __I2C_SetFlag  (I2CON_STO);
+    313              I2CState = I2C_NACK_ON_DATA;
+    314              break;
+    315            case 0x38 : // arbitration lost in Slave Address or Data bytes
+    316              I2CState = I2C_ARBITRATION_LOST;
+    317              break;
+    318          
+    319          /* ------- MASTER RECEIVER FUNCTIONS ----------- */
+    320            case 0x40 : // ACK for slave address + R
+    321              if (I2CMsg.nrBytes>1)
+    322              {
+    323                __I2C_SetFlag  (I2CON_AA );	// send acknowledge byte
+    324              }
+    325              else
+    326              {
+    327                __I2C_ClearFlag(I2CON_AAC); // return NACK
+    328              }
+    329              break;
+    330            case 0x48 : // no ACK for slave address + R
+    331              __I2C_SetFlag  (I2CON_STO);
+    332              I2CState = I2C_NACK_ON_ADDRESS;
+    333              break;
+    334            case 0x50 : // ACK for data byte
+    335              I2CMsg.buf[I2CMsg.dataCount++] = __I2C_ReceiveData();
+    336              if (I2CMsg.dataCount + 1 < I2CMsg.nrBytes)
+    337              {
+    338                __I2C_SetFlag(I2CON_AA );	  // send acknowledge byte
+    339              }
+    340              else
+    341              {
+    342                __I2C_ClearFlag(I2CON_AAC); // return NACK
+    343              }
+    344              break;
+    345            case 0x58 : // no ACK for data byte
+    346              I2CMsg.buf[I2CMsg.dataCount++] = __I2C_ReceiveData();
+    347          
+    348              __I2C_SetFlag  (I2CON_STO);
+    349              I2CState = I2C_OK;
+    350              break;
+    351            default : // undefined error
+    352              __I2C_SetFlag  (I2CON_STO);
+    353              __I2C_ClearFlag(I2CON_STAC | I2CON_AAC);
+    354              I2CState = I2C_ERROR;
+    355              break;
+    356            } // switch - I2C_I2STAT & 0xF8
+    357            __I2C_ClearFlag(I2CON_SIC);
+    358          }
+
+   Maximum stack usage in bytes:
+
+   .cstack Function
+   ------- --------
+        0  I2C_DisableI2C
+        0  I2C_EnableI2C
+       16  I2C_HandleMasterState
+             16 -> __I2C_ClearFlag
+             16 -> __I2C_ReceiveData
+             16 -> __I2C_SendData
+             16 -> __I2C_SetFlag
+        8  I2C_InitMaster
+              8 -> I2C_DisableI2C
+              8 -> I2C_EnableI2C
+              8 -> SYS_GetFpclk
+              8 -> __I2C_ClearFlag
+              8 -> __aeabi_uidiv
+       24  I2C_MasterRead
+             24 -> I2C_Transfer
+       24  I2C_MasterWrite
+             24 -> I2C_Transfer
+       32  I2C_Transfer
+             32 -> I2C_HandleMasterState
+             32 -> __I2C_ClearFlag
+             32 -> __I2C_SetFlag
+        0  __I2C_ClearFlag
+        0  __I2C_ReceiveData
+        0  __I2C_SendData
+        0  __I2C_SetFlag
+
+
+   Section sizes:
+
+   Bytes  Function/Label
+   -----  --------------
+       4  ??DataTable2
+       4  ??DataTable2_1
+       4  ??DataTable2_2
+       4  ??DataTable2_3
+       4  ??DataTable2_4
+       4  ??DataTable2_5
+      16  I2CMsg
+       4  I2CState
+      20  I2C_DisableI2C
+      32  I2C_EnableI2C
+     840  I2C_HandleMasterState
+     248  I2C_InitMaster
+      56  I2C_MasterRead
+      56  I2C_MasterWrite
+     244  I2C_Transfer
+       4  _A_I2C0CONCLR
+       4  _A_I2C0CONSET
+       4  _A_I2C0DAT
+       4  _A_I2C0SCLH
+       4  _A_I2C0SCLL
+       4  _A_I2C0STAT
+       4  _A_PCONP
+       4  _A_PINSEL1
+      16  __I2C_ClearFlag
+      20  __I2C_ReceiveData
+      24  __I2C_SendData
+      32  __I2C_SetFlag
+
+ 
+    20 bytes in section .bss
+    32 bytes in section .noinit (abs)
+ 1 612 bytes in section .text
+ 
+ 1 468 bytes of CODE memory (+ 144 bytes shared)
+    20 bytes of DATA memory (+  32 bytes shared)
+
+Errors: none
+Warnings: 2
